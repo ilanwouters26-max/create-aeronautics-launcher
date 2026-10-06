@@ -1,0 +1,705 @@
+TELEK PANEL — DESCRIPTION COMPLÈTE DU SYSTÈME (pour un humain ou une IA)
+=========================================================================
+
+Ce fichier décrit tout ce que contient le projet, comment il est construit,
+comment les morceaux se parlent, et ce qui reste à faire. Il est écrit pour
+qu'une IA qui ne connaît pas le projet puisse reprendre le travail sans
+relire tout le code. Les chemins sont relatifs à la racine du dépôt.
+
+
+0. EN UNE MINUTE
+----------------
+
+- Quoi : application de bureau Windows pour gérer des serveurs Minecraft
+  (console, bugs, actions suspectes, mods, publication de modpack vers GitHub,
+  horaires d'ouverture, extinction planifiée du PC).
+- Pour qui : Ilan (TelekGamer), un seul utilisateur, un seul PC Windows 11.
+- Stack : Tauri 2 (backend Rust, fenêtre WebView2) + Svelte 5 + Vite + TypeScript.
+  Base SQLite (rusqlite, SQLite embarqué). Mesures système via sysinfo.
+- Trois couches :
+    src-tauri/core/   crate Rust "panel-core" : toute la logique, sans Tauri, testée
+    src-tauri/src/    crate Rust "telek-panel" : glue Tauri (état, commandes, boucles)
+    src/              interface Svelte 5 (runes)
+- Branche git : base-panel. Le dépôt GitHub (create-aeronautics-launcher)
+  sert par ailleurs aux releases du launcher Create Aeronautics : ne jamais
+  créer de Release GitHub pour le panneau sur ce dépôt (le launcher lit
+  releases/latest pour se mettre à jour).
+- Lancer en dev : npm install ; npm run tauri dev (Rust + VS Build Tools C++
+  + Node 22 requis). npm run dev seul = interface dans un navigateur avec un
+  backend simulé (src/lib/mock.ts).
+- Construire l'installeur : npm run tauri build (NSIS, sortie dans
+  src-tauri/target/release/bundle/nsis/). Le workflow GitHub Actions
+  .github/workflows/build-panel.yml le fait sur windows-latest et dépose le
+  .exe en artefact du run (onglet Actions), sans Release.
+
+
+1. OBJECTIF ET PÉRIMÈTRE
+------------------------
+
+Trois "côtés" demandés par Ilan :
+- Côté serveur : voir l'état et les joueurs, démarrer/arrêter/redémarrer,
+  console avec autocomplétion type Minecraft, historique des bugs détectés
+  dans les logs, historique des actions suspectes (gamemode, give, op, tp,
+  progrès obtenus trop vite, diamants minés par heure), gestion des mods du
+  serveur, ressources (CPU, RAM, réseau, agent playit.gg), horaires
+  d'ouverture/fermeture, extinction planifiée et propre du PC.
+- Côté client : voir les instances Minecraft du PC (CurseForge, launcher
+  officiel, Prism, dossier choisi à la main), lister/ajouter/retirer des mods
+  par glisser-déposer, ouvrir les dossiers, comparer avec un serveur.
+- Côté launcher : Ilan a deux launchers Electron (C:\TelekGamer\Launcher
+  Create et Launcher Adrien) qui lisent un manifest sur GitHub pour installer
+  les mods. Le panneau scanne le dossier "release files", génère le manifest,
+  fait git add/commit/push, avec la progression affichée en direct, et permet
+  d'exclure des fichiers.
+
+Contraintes imposées : esthétique et efficacité en priorité, consommation
+minimale (rien ne tourne à vide), interface en français, Windows 11, i7-13700.
+
+Serveurs connus (à saisir dans l'interface, la config démarre vide) :
+- Zevent (Mineral Contest) : local, C:\TelekGamer\Zevent, mod OreClash.
+  Loader/version à compléter. Miner vite est le but du jeu : utiliser le
+  préréglage de détection "événement minage".
+- Serv Adrien V1 : Fabric, MC 26.1.2, loader 0.19.5, hébergé chez onpowered
+  (game4.onpowered.net:25582). Mode "hébergé" : ping + RCON seulement.
+- Create Aeronautics : NeoForge 1.21.1, modpack lourd. Local ou hébergé : à
+  compléter.
+
+
+2. ARCHITECTURE
+---------------
+
+                 événements Tauri (emit)          invoke (commandes)
+  Frontend  <---------------------------  App Tauri  <-----------------  Frontend
+  (Svelte)                                (src-tauri/src)
+                                              |
+                                              | appels de fonctions Rust
+                                              v
+                                         panel-core (src-tauri/core)
+                                         logs, bugs, suspect, stats, process,
+                                         ping, rcon, mods, instances, publish,
+                                         schedule, sysmon, history, config, system
+
+Règles :
+- panel-core ne dépend pas de Tauri. Tout ce qui peut être testé l'est ici
+  (54 tests : cargo test dans src-tauri/core).
+- L'app Tauri tient l'état partagé (AppState), transforme les appels du
+  frontend en appels core, et pousse les changements au frontend par
+  événements. Les opérations longues tournent dans des threads ou via
+  spawn_blocking, jamais sur le thread principal.
+- Le frontend ne contient aucune logique métier : il affiche l'état reçu et
+  envoie des commandes. En navigateur (sans Tauri), src/lib/mock.ts simule le
+  backend pour le développement visuel.
+
+
+3. ARBORESCENCE
+---------------
+
+package.json              scripts : dev (vite), build (vite build), check
+                          (svelte-check), tauri (CLI Tauri)
+vite.config.ts            port 1420, ignore src-tauri
+svelte.config.js, tsconfig.json, index.html
+.github/workflows/build-panel.yml   build Windows en artefact
+TELEK-PANEL-SYSTEME.txt   ce fichier
+
+src/
+  main.ts                 montage de App.svelte
+  App.svelte              coquille : sidebar + page courante + toasts + modale
+                          "quitter avec des serveurs en marche"
+  app.css                 thème HUD (variables CSS, composants génériques)
+  lib/
+    types.ts              types TypeScript miroirs des structs Rust
+    api.ts                wrappers typés des commandes Tauri + abonnement aux
+                          événements ; bascule sur le mock hors Tauri ;
+                          dialogues (choix dossier/fichiers), autostart,
+                          glisser-déposer natif
+    mock.ts               backend simulé (données d'exemple, logs animés)
+    stores.svelte.ts      état global ($state) : config, états serveurs,
+                          route, toasts, plan d'extinction, infos système ;
+                          loadAll, subscribeEvents, saveConfig, navigate
+    dragdrop.svelte.ts    zones de dépôt : l'événement natif Tauri donne une
+                          position, elementFromPoint retrouve la zone
+                          ([data-dropzone]) ; HTML5 en mode navigateur
+    commands.ts           arbre des commandes vanilla pour l'autocomplétion
+    mc-data.ts            listes vanilla (items, effets, enchantements,
+                          entités, gamerules, structures, biomes)
+    defaults.ts           valeurs par défaut (serveur, launcher, détection)
+    format.ts             octets, durées, dates, chemins
+  components/
+    Sidebar.svelte        navigation + liste des serveurs avec état/joueurs
+    Console.svelte        log virtualisé (hauteur de ligne fixe 20 px, seules
+                          les lignes visibles sont rendues), filtres, saisie
+                          avec suggestions (Tab, flèches, historique local)
+    ModList.svelte        liste de mods d'un dossier, activer/désactiver,
+                          supprimer, importer, zone de dépôt, doublons
+    ModDiffView.svelte    rendu d'une comparaison de deux dossiers de mods
+    ServerForm.svelte     formulaire serveur (local/hébergé, détection auto)
+    Modal.svelte, Toasts.svelte, Toggle.svelte, Sparkline.svelte, Icon.svelte
+  pages/
+    Dashboard.svelte      vue d'ensemble : cartes serveurs, compteurs, plan
+                          d'extinction, ajout de serveur
+    ServerPage.svelte     en-tête + onglets d'un serveur
+    server/ServerPlayers.svelte   connectés, historique de présence, stats
+    server/ServerBugs.svelte      bugs regroupés, rapport de crash
+    server/ServerSuspicious.svelte alertes + réglages de détection
+    server/ServerMods.svelte      mods du serveur + comparaison instance
+    server/ServerResources.svelte CPU/RAM/réseau, playit, server.properties
+    server/ServerSchedule.svelte  horaires
+    ClientPage.svelte     instances client et leurs mods
+    LauncherPage.svelte   fichiers de release, publication, git, historique
+    SystemPage.svelte     extinction PC, réglages, infos machine, quitter
+
+src-tauri/
+  Cargo.toml              crate telek-panel (lib telek_panel_lib + bin),
+                          workspace avec core ; profil release optimisé taille
+  tauri.conf.json         fenêtre "main" 1320x840 (min 980x620), cachée au
+                          départ puis affichée par le code, dragDropEnabled,
+                          bundle NSIS, icônes
+  capabilities/default.json  permissions du webview (core, window show/hide,
+                          dialog, autostart)
+  build.rs                tauri_build::build()
+  icons/                  icon.png source + tailles générées (tauri icon)
+  src/
+    main.rs               point d'entrée (pas de console en release)
+    lib.rs                Builder Tauri : plugins dialog + autostart, setup
+                          (chemins, config, historique, tray, boucles,
+                          affichage de la fenêtre sauf démarrage réduit),
+                          fermeture → tray ou demande de quitter, liste des
+                          commandes
+    state.rs              AppState, ServerRuntime, ServerState (instantané
+                          envoyé au frontend), MetricPoint, ShutdownStatus
+    servers.rs            cycle de vie des serveurs et pipeline des logs
+    loops.rs              boucles de fond (logs groupés, planning, ping,
+                          métriques, stats)
+    commands.rs           toutes les commandes #[tauri::command]
+    tray.rs               icône de barre système (Ouvrir / Quitter)
+  core/
+    Cargo.toml            crate panel-core
+    src/lib.rs            modules + now_rfc3339()
+    src/config.rs         modèle de configuration + lecture/écriture atomique
+    src/logs.rs           parsing des lignes de log + extraction d'événements
+    src/bugs.rs           regroupement des erreurs (empreinte)
+    src/suspicious.rs     règles d'actions suspectes
+    src/stats.rs          lecture world/stats + taux de minage
+    src/properties.rs     lecture server.properties
+    src/process.rs        lancement/arrêt d'un processus serveur, détection
+                          du mode de lancement
+    src/ping.rs           Server List Ping
+    src/rcon.rs           client RCON
+    src/mods.rs           scan des jars, activation, import, doublons, diff
+    src/instances.rs      détection des instances client
+    src/publish.rs        scan release, manifest, comparaison, git, publish
+    src/schedule.rs       actions dues (ouverture/fermeture, extinction)
+    src/sysmon.rs         échantillonnage CPU/RAM/réseau
+    src/history.rs        SQLite : bugs, suspect, joueurs, sessions, publications
+    src/system.rs         shutdown Windows, ouvrir un dossier
+
+
+4. LANCER, CONSTRUIRE, VÉRIFIER
+-------------------------------
+
+Prérequis Windows : Rust (rustup, stable), Visual Studio Build Tools avec
+"Développement Desktop en C++" (compile aussi SQLite embarqué), Node 22,
+WebView2 Runtime (présent sur Windows 11), git dans le PATH avec identifiants
+GitHub déjà enregistrés (Git Credential Manager) pour la publication.
+
+- npm install                      dépendances frontend + CLI Tauri
+- npm run tauri dev                app complète avec rechargement à chaud
+- npm run dev                      interface seule, backend simulé
+- npm run check                    svelte-check (types)
+- cargo test  (dans src-tauri/core)   tests du cœur
+- cargo check (dans src-tauri)     compile l'app Tauri
+- npm run tauri build              installeur NSIS
+
+Cross-compilation depuis Linux (expérimental, utilisé une fois pour produire
+un installeur depuis le cloud) : rustup target add x86_64-pc-windows-msvc,
+cargo install cargo-xwin, apt nsis clang llvm lld, puis
+tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc.
+
+Vérifications faites : 54 tests core OK (Linux), compilation sans warning,
+core compilé aussi en cible Windows GNU, svelte-check 0 erreur, interface
+rendue page par page avec le mock (captures Playwright). L'exécution réelle
+sous Windows (tray, drag-drop WebView2, shutdown, processus Java) n'a pas
+encore été testée par Ilan au moment d'écrire ce fichier.
+
+
+5. DONNÉES PERSISTANTES
+-----------------------
+
+Emplacements (résolus par Tauri à partir de l'identifier com.telekgamer.panel) :
+- %APPDATA%\com.telekgamer.panel\config.json      configuration
+- %APPDATA%\com.telekgamer.panel\history.db       historique SQLite (WAL)
+
+config.json (AppConfig, voir core/src/config.rs ; tous les champs ont des
+valeurs par défaut, un fichier partiel est accepté) :
+
+  version: 1
+  settings:
+    close_to_tray (true)           fermer la fenêtre = réduire dans le tray
+    start_minimized (false)        démarrer caché (aussi forcé par --minimized,
+                                   argument passé par le démarrage Windows)
+    metrics_interval_visible_ms (2000)  échantillonnage quand un onglet
+                                   Ressources (ou le tableau de bord) regarde
+    metrics_interval_hidden_ms (30000)  sinon ; 0 = aucun échantillonnage
+    ping_interval_s (30)           ping des serveurs hébergés et locaux en marche
+    stats_scan_interval_min (5)    analyse de world/stats
+    log_buffer_lines (2000)        lignes de console gardées par serveur
+  servers[]: ServerConfig
+    id (chaîne unique), name, loader ("fabric"|"forge"|"neoforge"|"vanilla"|
+    "paper"|"quilt"|""), mc_version, notes
+    kind: { type: "local", dir, java_path ("java"), jvm_args, launch
+            {mode:"jar"|"argsfile"|"script", path}, extra_args ("nogui"),
+            port (25565), auto_restart (false), stop_timeout_s (90),
+            stop_warning_s (300, réservé) }
+       ou { type: "remote", host, port, rcon {enabled, host, port (25575),
+            password} }
+    schedule: { enabled, open_time "HH:MM", close_time "HH:MM", warning_s }
+    detection: { enabled, gamemode, give, op, teleport, other_admin,
+                 early_advancements, early_rules [{title, max_minutes}],
+                 mining, mining_rules [{label, blocks[], per_hour}],
+                 mining_min_playtime_min }
+    playit: { enabled, exe_path, args, with_server }
+  instances[]: { id, name, dir (dossier contenant mods/), source
+                 ("curseforge"|"official"|"prism"|"manual"), loader, mc_version }
+  launchers[]: { id, name, project_dir (racine git), release_dir
+                 ("release files"), dist_dir ("dist release", informatif),
+                 manifest_path ("manifest.json"), branch ("main"), base_url,
+                 commit_message ("Publication modpack {date}"), excluded[]
+                 (chemins relatifs exclus du manifest), ignore_suffixes[]
+                 ([".disabled", ".bak", ".tmp"]) }
+  shutdown: null | { at (RFC3339 local), stop_servers, grace_s, warning_s,
+                     created_at }   plan d'extinction en cours (propriété du
+                     backend : save_config ne l'écrase jamais)
+
+Défauts jvm_args : "-Xms2G -Xmx6G -Dfile.encoding=UTF-8
+-Dsun.stdout.encoding=UTF-8 -Dstdout.encoding=UTF-8" (les options d'encodage
+évitent les accents cassés dans la console sous Windows).
+
+history.db (core/src/history.rs) :
+  bugs(id, server_id, fingerprint, category, level, title, exception,
+       details, count, first_seen, last_seen, resolved)  UNIQUE(server_id,
+       fingerprint) ; une nouvelle occurrence incrémente count, met à jour
+       last_seen/details et rouvre (resolved=0)
+  suspicious(id, server_id, ts, player, category, severity, title, details,
+       acknowledged)
+  players(server_id, name, first_seen, last_seen, sessions)
+  sessions(id, server_id, player, joined, left)   left NULL = en cours
+  publishes(id, launcher_id, ts, version, files, changed, ok, message)
+Les dates sont des chaînes RFC3339 locales (now_rfc3339()).
+
+
+6. SERVEURS : MODÈLE ET CYCLE DE VIE
+------------------------------------
+
+Deux types :
+- Local : le panneau lance Java lui-même et tient stdin/stdout. C'est la
+  condition pour avoir la console en direct, les logs, la détection, l'arrêt
+  propre et les horaires. Un serveur lancé par un .bat à côté ne peut pas
+  être rattaché.
+- Hébergé (remote) : état et joueurs via Server List Ping sur le port de jeu,
+  commandes via RCON (à activer dans server.properties chez l'hébergeur :
+  enable-rcon=true, rcon.port, rcon.password, port ouvert). Pas de logs, pas
+  de fichiers, donc pas de bugs/suspect/mods/stats. Un accès SFTP ou une API
+  d'hébergeur n'est pas encore implémenté.
+
+Statuts (state.rs ServerStatus) : stopped, starting, running, stopping,
+crashed, unknown (hébergé jamais pingé).
+
+Lancement (servers.rs start_server) :
+1. build_launch_command (process.rs) : java_path + jvm_args découpés +
+   ("-jar" chemin | "@fichier" | script via "cmd /c") + extra_args, cwd =
+   dossier du serveur. Vérifie que le dossier existe.
+2. Statut starting, ligne "Lancement : <commande>" dans la console (logger
+   "panel"), spawn du processus avec stdin/stdout/stderr en pipes, sans
+   fenêtre console (CREATE_NO_WINDOW), lecteurs de lignes en threads
+   (UTF-8 avec remplacement des octets invalides).
+3. Si playit.enabled et with_server : lancement de l'agent playit (ses lignes
+   arrivent avec le logger "playit").
+4. Le passage à running se fait sur la ligne "Done (x.xs)!" ; la progression
+   "Preparing spawn area: N%" alimente start_progress.
+
+Arrêt propre (stop_server_blocking) : statut stopping, stop_requested=true ;
+annonce optionnelle avec compte à rebours (say à 10 min, 5, 2, 1, 30 s,
+10 s) ; "say Fermeture du serveur, sauvegarde en cours" ; "save-all" ;
+attente 0,8 s ; "stop" ; attente stop_timeout_s (min 10) ; sinon kill. Sous
+Windows, kill = taskkill /T /F /PID (tue aussi java lancé par cmd). L'arrêt
+manuel depuis l'interface n'a pas d'annonce ; l'arrêt planifié a l'annonce
+(schedule.warning_s). Forcer l'arrêt = kill immédiat.
+
+Fin de processus (on_exit) : si stop_requested était faux et code != 0 →
+crashed, bug "Arrêt inattendu du serveur" (empreinte crash|exit), sessions
+joueurs fermées, agent playit arrêté si with_server. Si auto_restart :
+relance 5 s plus tard, au plus 3 fois par 10 minutes (sinon message
+d'erreur sur la carte). Un arrêt demandé donne stopped.
+
+Redémarrer = arrêt propre puis lancement. Le frontend reçoit un instantané
+ServerState à chaque changement (événement server:state) : id, status,
+remote, players [{name, since}], players_max, uptime_s, pid, start_progress,
+last_ping, counts {bugs_open, suspicious_open}, next_event, playit_running,
+last_error, log_lines.
+
+Détection du lancement (process.rs detect_launch, bouton "Détecter") :
+cherche libraries/net/neoforged/neoforge/<v>/win_args.txt (NeoForge, MC
+déduite : 21.1.x → 1.21.1) ou libraries/net/minecraftforge/forge/<mc-forge>/
+win_args.txt, sinon fabric-server*.jar, server.jar / minecraft_server* /
+paper* / purpur*, forge-*.jar, n'importe quel jar, sinon run.bat/start.bat ;
+lit user_jvm_args.txt ou les -X/-D d'un .bat pour proposer jvm_args.
+
+
+7. PIPELINE DES LOGS
+--------------------
+
+Chaque ligne stdout/stderr d'un serveur local passe par servers.rs
+handle_line :
+1. logs.rs parse_line : en-tête "[HH:MM:SS] [thread/LEVEL]: msg" (vanilla,
+   Fabric), "[06Oct2026 12:34:56.123] [thread/LEVEL] [logger/]: msg"
+   (Forge/NeoForge), "[HH:MM:SS LEVEL]: msg" (Paper). Une ligne sans en-tête
+   est une continuation (stacktrace).
+2. logs.rs extract_event : Joined (login ou "joined the game"), Left (left /
+   lost connection), Advancement ("has made the advancement [Titre]"), Chat,
+   AdminFeedback ("[Acteur: texte]" = retour d'une commande tapée par un
+   joueur, gamerule logAdminCommands ; classée GameMode, Give, Op, Deop,
+   Teleport, Kill, Effect, Xp, Time, Weather, Difficulty, GameRule,
+   Whitelist, Ban, Kick, Summon, Other), Lag ("Can't keep up"), Starting,
+   Progress, Started ("Done"), Stopping, List ("There are N of a max of M
+   players online: ..."), Crash ("crash report has been saved to"),
+   MovedWrongly ("moved too quickly!" / "moved wrongly!"), RconReady.
+   Les commandes tapées depuis la console du panneau arrivent sans crochets
+   dans les logs et ne sont donc pas considérées comme suspectes.
+3. Mise à jour du runtime : statut, progression, joueurs en ligne (ajout /
+   retrait, resynchronisation sur une réponse à /list), players_max.
+4. bugs.rs ErrorCollector : une ligne ERROR/FATAL, ou WARN contenant
+   exception/error/failed/unable, ou n'importe quelle ligne suivie d'une
+   stacktrace, devient un BugReport une fois la ligne suivante (ou 800 ms
+   d'inactivité) arrivée. Lag et Crash sont des bugs immédiats. Empreinte =
+   niveau | classe d'exception | message normalisé (UUID, hex, nombres,
+   chaînes entre guillemets remplacés) tronqué à 160 caractères. Détails =
+   ligne + stacktrace (150 lignes / 12 000 caractères max).
+5. suspicious.rs Tracker (par serveur, avec la config de détection du
+   serveur) : voir §8.
+6. Historique : player_joined/left, record_bug (événement history:bug avec la
+   ligne SQL, toast si première occurrence), record_suspicious (événement
+   history:suspicious, toast), compteurs rafraîchis.
+7. La ligne est poussée dans le tampon circulaire du serveur
+   (log_buffer_lines) et dans une file ; loops.rs l'envoie au frontend par
+   paquets toutes les 150 ms (événement server:log {server_id, lines}).
+
+Lignes synthétiques (push_panel_line) : logger "panel" (messages du
+panneau), "console" (écho des commandes envoyées, préfixe ">"), "rcon"
+(réponses RCON), "playit" (sortie de l'agent). Le frontend les colore.
+
+
+8. DÉTECTION
+------------
+
+Actions suspectes (suspicious.rs, config detection du serveur) :
+- Les acteurs "Server" et "Rcon" sont ignorés.
+- gamemode : un joueur change un mode de jeu → high si creative/spectator,
+  sinon warn. give → high. op/deop → high. teleport → warn. other_admin
+  (désactivé par défaut) : kill → warn, autres retours admin → info.
+- early_advancements : si un progrès listé dans early_rules est obtenu moins
+  de max_minutes après la première connexion connue du joueur → warn. La
+  première connexion vient de l'historique (players.first_seen) ou de la
+  session courante ; joueur inconnu = pas d'alerte. Défauts : "Diamonds!"
+  20 min, "Cover Me with Diamonds" 60 min, "Cover Me in Debris" 180 min
+  (titres exacts des logs, en anglais).
+- movement : "moved too quickly/wrongly" → info, au plus une fois par 10 min
+  par joueur (peut aussi être du lag).
+- mining (stats.rs, scan toutes les stats_scan_interval_min pour un serveur
+  local en marche avec mining activé, ou à la demande) : lit
+  <dir>/usercache.json (uuid → nom) et <dir>/<level-name>/world/stats/*.json ;
+  pour chaque règle, somme des blocs minés (minecraft:mined) divisée par les
+  heures de jeu (minecraft:custom/minecraft:play_time ou play_one_minute,
+  en ticks / 72000). Alerte high si > per_hour et temps de jeu ≥
+  mining_min_playtime_min. Une même (joueur, règle) n'est pas répétée avant
+  6 h. Défauts : Diamants (diamond_ore + deepslate_diamond_ore) 40/h,
+  Débris antiques 15/h, 30 min de jeu minimum. Les fichiers stats ne sont
+  écrits par le serveur qu'à la sauvegarde (toutes les 5 min, déconnexion).
+- Préréglage "événement minage" (mining_event_preset) : early_advancements
+  et mining désactivés, le reste actif. À utiliser pour le Mineral Contest.
+- Sévérités : info, warn, high. Chaque alerte peut être marquée vue
+  (acknowledged) ou supprimée. Ce n'est pas un anticheat : ce sont des
+  signaux à vérifier.
+
+Bugs : catégories error, warn, lag, crash ; résolu/rouvert/supprimé ; un
+bug "crash" dont les détails contiennent "Rapport : <chemin>" permet de lire
+le rapport (crash_report_read, 200 Ko max).
+
+
+9. PLANNING ET EXTINCTION
+-------------------------
+
+schedule.rs est pur ; loops.rs l'appelle toutes les 15 s (scheduler_tick)
+avec l'état "running" de chaque serveur local.
+- in_window(heure, open, close) gère le passage de minuit (22:00 → 06:00).
+- Ouverture : au premier tick (rattrapage si le panneau démarre pendant la
+  plage) ou à l'entrée dans la plage, si le serveur est arrêté, une fois par
+  jour. Un arrêt manuel dans la plage n'est pas relancé.
+- Avertissement : quand il reste moins de warning_s avant close_time et que
+  le serveur tourne, une fois par jour → "say Fermeture du serveur dans X".
+- Fermeture : à la sortie de la plage observée (transition dedans → dehors)
+  si le serveur tourne. Un serveur lancé à la main hors plage n'est pas
+  fermé.
+- next_event : prochaine ouverture/fermeture pour l'affichage.
+Le planning ne tourne que si le panneau est ouvert (fenêtre ou tray).
+
+Extinction du PC (PlannedShutdown dans la config) :
+- shutdown_plan : vérifie que l'heure est au moins 30 s dans le futur.
+- shutdown_due : à at - warning_s → "say Extinction du PC dans X" sur tous
+  les serveurs en marche ; à at → ShutdownNow : arrêt propre de tous les
+  serveurs en parallèle (si stop_servers), puis
+  `shutdown /s /t <grace_s> /c "Telek Panel : extinction planifiée"`
+  (system.rs, Windows seulement), os_shutdown_armed = true, plan effacé,
+  événement shutdown:result (erreur éventuelle).
+- shutdown_cancel : `shutdown /a` si armé, plan effacé.
+- Un plan dont l'heure est dépassée de plus de 10 min (panneau fermé entre
+  temps) est abandonné au démarrage ou au tick suivant.
+- shutdown_status / événement shutdown:state : {plan, os_armed, seconds_left}.
+
+
+10. PING ET RCON
+----------------
+
+- ping.rs : Server List Ping (handshake protocole 767, état 1, paquet status,
+  réponse JSON). Donne online, players_online/max, sample (12 noms max),
+  version, protocole, MOTD aplati (composants chat, codes § retirés),
+  latence. Timeout 4 s. Utilisé toutes les ping_interval_s pour les
+  serveurs hébergés et les serveurs locaux en marche (127.0.0.1 + port de
+  server.properties ou de la config). Pour un hébergé, le ping fixe le
+  statut running/stopped et la liste des joueurs (sample).
+- rcon.rs : protocole Source RCON (auth type 3, commande type 2, réponses
+  type 0, concaténation des réponses de 4096 octets). Connexion par
+  commande, timeout 6 s. Réponse renvoyée et poussée dans la console
+  (logger "rcon"). Mot de passe stocké en clair dans config.json.
+
+
+11. MODS ET INSTANCES
+---------------------
+
+mods.rs :
+- scan_mods(dossier) : fichiers *.jar et *.jar.disabled. Métadonnées lues
+  dans le jar : fabric.mod.json (id, version, name, environment
+  client/server/*, description), quilt.mod.json, META-INF/neoforge.mods.toml
+  et META-INF/mods.toml ([[mods]] modId/version/displayName/description ;
+  "${file.jarVersion}" remplacé par Implementation-Version du MANIFEST.MF).
+  loader = "fabric", "forge", "neoforge", "quilt" ou combinaison "a+b".
+- set_enabled : renomme x.jar ⇄ x.jar.disabled. delete_mod : supprime
+  (jars seulement). import_mods : copie des .jar (écrase un même nom).
+- duplicates : même id (ou même nom de fichier) présent plusieurs fois.
+- diff(a, b) : seulement dans a, seulement dans b, versions différentes,
+  identiques (clé = id en minuscules, sinon nom de fichier).
+
+instances.rs :
+- CurseForge : %USERPROFILE%\curseforge\minecraft\Instances\<nom>\ avec
+  minecraftinstance.json (name, gameVersion, baseModLoader.name
+  "neoforge-21.1.72" → loader "neoforge").
+- Launcher officiel : %APPDATA%\.minecraft + profils de
+  launcher_profiles.json ayant un gameDir distinct.
+- Prism : %APPDATA%\PrismLauncher\instances\<nom>\(.minecraft|minecraft),
+  instance.cfg (name=), mmc-pack.json (composants : net.minecraft,
+  net.fabricmc.fabric-loader, net.neoforged, net.minecraftforge).
+- Dossier choisi à la main : inspect_dir (lit minecraftinstance.json s'il
+  existe, compte les mods).
+Le dossier des mods est toujours <dir>\mods.
+
+Glisser-déposer : Tauri intercepte le drop natif (dragDropEnabled) et
+fournit les chemins complets ; dragdrop.svelte.ts retrouve la zone visée
+par la position (elementFromPoint sur [data-dropzone]) et appelle
+mods_import. Les drops HTML5 ne reçoivent pas de chemins dans WebView2.
+
+
+12. LAUNCHER ET PUBLICATION
+---------------------------
+
+publish.rs :
+- scan_release_dir : parcours récursif de <project_dir>/<release_dir>,
+  fichiers cachés et suffixes ignorés exclus, SHA-1 de chaque fichier avec
+  cache (chemin, taille, date) pour ne pas relire les jars inchangés.
+- Manifest écrit dans <project_dir>/<manifest_path> :
+    {
+      "version": "2026.10.06-2114",
+      "generated_at": "2026-10-06T21:14:03+02:00",
+      "base_url": "https://raw.githubusercontent.com/<user>/<repo>/main/release%20files",
+      "files": [
+        { "path": "mods/create-6.0.4.jar", "size": 15400000,
+          "sha1": "…", "url": "<base_url>/mods/create-6.0.4.jar" }
+      ]
+    }
+  Ce format est GÉNÉRIQUE : il faut l'aligner sur ce que lisent les
+  launchers Electron d'Ilan (format non fourni au moment d'écrire). Seuls
+  build_manifest / Manifest / ManifestEntry sont à adapter. Les fichiers
+  listés dans excluded ne figurent pas dans le manifest (mais restent sur
+  le disque et dans git).
+- compare(ancien manifest, scan) : new / changed / unchanged / removed.
+- publish(cfg, {version, push, excluded}) : étapes avec progression
+  (événement publish:progress {launcher_id, progress}) :
+  1 analyse, 2 manifest (non réécrit si identique au précédent, hors date),
+  3 git add -A -- <release_dir> <manifest_path>, 4 git commit -m
+  (commit_message avec {date} et {version}) seulement s'il y a des
+  changements indexés, 5 git push origin <branch> si push. Chaque ligne de
+  sortie git est transmise (stdout et stderr, retours chariot découpés).
+  Variables : GIT_TERMINAL_PROMPT=0 (pas de blocage sur une demande
+  d'identifiants : échec rapide), LC_ALL=C. Fin : publish:done
+  {launcher_id, report, error}, enregistré dans publishes.
+- git_info : branche, dernier commit, remote origin, nombre de fichiers non
+  commités, erreurs (git absent, pas un dépôt).
+- Une seule publication à la fois par launcher (ensemble publishing).
+
+Remarque donnée à Ilan : des jars commités dans git gonflent le dépôt à
+chaque mise à jour et GitHub refuse les fichiers > 100 Mo ; des assets de
+Release seraient préférables si le launcher sait les lire.
+
+
+13. MÉTRIQUES
+-------------
+
+sysmon.rs (sysinfo) : CPU global, RAM utilisée/totale, octets réseau reçus/
+émis depuis le dernier échantillon (toutes interfaces) convertis en octets/s,
+CPU et RAM par pid (CPU exprimé en % de la machine entière : usage d'un cœur
+divisé par le nombre de cœurs). Pour un serveur lancé via script, les
+enfants directs du processus sont ajoutés.
+loops.rs spawn_metrics : échantillonne seulement si quelqu'un regarde
+(watchers : l'onglet Ressources appelle metrics_watch(id, true/false),
+le tableau de bord enregistre "app" pour la consommation du panneau lui-même)
+à metrics_interval_visible_ms, sinon à metrics_interval_hidden_ms (0 =
+rien). Historique de 180 points par serveur (metrics_history), événements
+server:metrics {server_id, point} et app:metrics {cpu, mem}.
+
+
+14. FENÊTRE, TRAY, QUITTER
+--------------------------
+
+- La fenêtre est créée cachée (visible:false) et affichée par setup sauf si
+  start_minimized ou l'argument --minimized (ajouté par le démarrage avec
+  Windows via tauri-plugin-autostart).
+- Fermer la fenêtre : si close_to_tray, elle est cachée ; sinon demande de
+  quitter. Le tray a "Ouvrir Telek Panel" et "Quitter" ; clic gauche = ouvrir.
+- Quitter : s'il y a des serveurs locaux en marche, événement
+  app:quit-requested {running: [noms]} → le frontend affiche une modale
+  (annuler / quitter sans arrêter / arrêter puis quitter) → app_quit
+  (stop_servers). Sans serveur en marche, sortie immédiate. Un serveur
+  laissé en marche continue de tourner mais ne peut plus être rattaché.
+- Autostart : géré côté frontend par @tauri-apps/plugin-autostart
+  (isEnabled/enable/disable), pas stocké dans config.json.
+
+
+15. API : COMMANDES ET ÉVÉNEMENTS
+---------------------------------
+
+Toutes les commandes sont async, renvoient Result<T, String> (l'erreur est
+un message en français affiché en toast) et prennent leurs arguments en
+snake_case (rename_all = "snake_case"). Wrappers typés dans src/lib/api.ts.
+
+Configuration : get_config → AppConfig ; get_paths → {config_file,
+history_db, data_dir} ; save_config(config) → AppConfig (conserve le plan
+d'extinction courant, met à jour les règles de détection des runtimes,
+émet config:changed).
+Serveurs : list_server_states → ServerState[] ; server_start(id) ;
+server_stop(id) (thread, sans annonce) ; server_restart(id) ;
+server_kill(id) ; server_command(id, command) → réponse (RCON) ou "" ;
+server_log(id) → LogLine[] (tampon) ; server_clear_log(id) ;
+server_ping(id) → PingResult ; server_detect_launch(dir) → DetectedLaunch ;
+server_players(id) → PlayerRow[] ; server_scan_stats(id) → {stats, alerts,
+recorded} ; server_properties(id) → map ; metrics_watch(id, watch) ;
+metrics_history(id) → MetricPoint[] ; playit_start(id) ; playit_stop(id).
+Mods/instances : mods_list(dir) → {dir, dir_exists, mods, duplicates} ;
+mods_set_enabled(path, enabled) → nouveau chemin ; mods_delete(path) ;
+mods_import(dir, files[]) → ImportResult[] ; mods_diff(dir_a, dir_b) →
+ModDiff ; open_path(path) (Explorateur) ; instances_detect() →
+DetectedInstance[] ; instance_inspect(dir) → DetectedInstance.
+Launcher : launcher_scan(id) → {files (FileDiff[]), git, manifest, history,
+release_dir, manifest_file, publishing, error} ; launcher_publish(id,
+version|null, push) (thread, progression par événements).
+Historique : bugs_list(server_id|null, include_resolved) ; bug_resolve(id,
+server_id, resolved) ; bug_delete(id, server_id) ; suspicious_list
+(server_id|null) ; suspicious_ack(id, server_id, ack) ; suspicious_delete
+(id, server_id) ; history_clear(server_id, bugs, suspicious) ;
+crash_report_read(path) → texte.
+Système : system_info → {info {os, cpu_brand, cpu_count, mem_total},
+app_pid, paths, is_windows} ; shutdown_plan(plan) → ShutdownStatus ;
+shutdown_cancel() ; shutdown_status() ; running_servers() → noms ;
+app_quit(stop_servers).
+
+Événements (emit → listen) : server:state (ServerState), server:log
+({server_id, lines}), server:metrics ({server_id, point}), app:metrics
+({cpu, mem}), history:bug (BugRow), history:suspicious (SuspiciousRow),
+publish:progress ({launcher_id, progress: step|line|done}), publish:done
+({launcher_id, report, error}), config:changed (AppConfig), shutdown:state
+(ShutdownStatus), shutdown:result (message d'erreur ou ""),
+app:quit-requested ({running}).
+
+Ordre des verrous dans l'app Tauri (à respecter pour éviter les
+interblocages) : config → servers → history → pending_logs ; ne jamais
+appeler une fonction qui prend un verrou "plus haut" en tenant un verrou
+"plus bas". Les callbacks de lecture des logs tiennent `servers` le moins
+longtemps possible et ne font jamais d'appel bloquant sous verrou.
+
+
+16. FRONTEND : FONCTIONNEMENT
+-----------------------------
+
+- Svelte 5 avec runes ($state, $derived, $effect, $props). L'état global
+  est l'objet `app` de stores.svelte.ts ; les composants le lisent
+  directement. saveConfig(mutateur) envoie une copie complète de la config
+  au backend et adopte la version renvoyée.
+- Routage interne (pas de routeur) : app.route {page, id, tab}, mémorisé dans
+  localStorage. Pages : dashboard, server (id + onglet), client, launcher,
+  system.
+- Au montage de App : restoreRoute, subscribeEvents, loadAll (config, états,
+  plan d'extinction, infos système), installDragDrop.
+- Console : les lignes arrivent par paquets ; rendu virtualisé (seules les
+  lignes visibles existent dans le DOM) ; collage en bas automatique sauf si
+  l'utilisateur a remonté ; filtres niveau/texte ; saisie : complete()
+  (commands.ts) propose littéraux et arguments (joueurs connectés, sélecteurs
+  @a/@p/@r/@s/@e, items, effets, enchantements, entités, gamerules,
+  structures, biomes) selon l'arbre COMMANDS ; Tab accepte (ajoute un espace
+  s'il reste des arguments), flèches = suggestions ou historique (100
+  dernières commandes par serveur en localStorage), Entrée envoie. Les
+  commandes des mods ne sont pas connues : à ajouter à la main dans
+  COMMANDS.
+- Thème (app.css) : HUD sombre, cyan #22c8ff, cadres avec coins marqués
+  (pseudo-éléments), typographie Bahnschrift / Segoe UI Variable, mono
+  Cascadia Mono / Consolas, aucune animation continue ni flou (économie
+  GPU), transitions au survol seulement, prefers-reduced-motion respecté.
+- Mock (mock.ts) : actif quand window.__TAURI_INTERNALS__ est absent ;
+  simule trois serveurs, des logs, des métriques, une publication.
+
+
+17. CONVENTIONS
+---------------
+
+- Interface et messages d'erreur en français ; code et identifiants en
+  anglais ; commentaires en français, seulement quand la logique n'est pas
+  évidente.
+- Ne rien faire tourner à vide : pas de polling sans abonné, boucles avec
+  intervalles configurables, lectures de disque seulement à la demande ou
+  à intervalle long.
+- Les opérations longues (arrêt, publication, scan) ne bloquent jamais une
+  commande : thread + événements.
+- Les erreurs remontent en String lisible, jamais de panic sur une entrée
+  utilisateur.
+- Config : écriture atomique (fichier temporaire + renommage).
+- Pas de secrets ailleurs que config.json (mot de passe RCON) ; pas de token
+  GitHub.
+- Tests : dans chaque module core (#[cfg(test)]), avec faux serveurs TCP
+  pour ping/RCON, jars fabriqués pour les mods, dépôt git temporaire pour la
+  publication.
+
+
+18. LIMITES CONNUES ET SUITE
+----------------------------
+
+- Format du manifest à aligner sur les launchers Electron (bloquant pour une
+  vraie publication utile).
+- Serveur hébergé : pas d'accès fichiers (SFTP ou API onpowered à voir),
+  donc pas de logs/bugs/suspect/stats pour Serv Adrien.
+- playit.gg : l'agent est lancé/arrêté et sa sortie affichée, rien de plus
+  (pas d'API).
+- Les règles "progrès précoces" reposent sur les titres anglais des
+  advancements ; un serveur en français les logge quand même en anglais
+  (les logs serveur ne sont pas traduits).
+- Pas de lecture de la liste réelle des commandes du serveur (Brigadier) :
+  l'autocomplétion est statique.
+- Première exécution Windows non encore validée (voir §4).
+- Idées non faites : édition de server.properties, sauvegardes du monde,
+  notifications Windows, mise à jour automatique du panneau, Release GitHub
+  sur un dépôt dédié au panneau.
