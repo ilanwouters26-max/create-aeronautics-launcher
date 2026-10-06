@@ -30,6 +30,7 @@
     <polygon points={area} fill={color} opacity="0.12" />
   {/if}
   {#if points}
+    <polyline points={points} fill="none" stroke={color} stroke-width="5" opacity="0.18" vector-effect="non-scaling-stroke" />
     <polyline points={points} fill="none" stroke={color} stroke-width="1.6" vector-effect="non-scaling-stroke" />
   {/if}
 </svg>

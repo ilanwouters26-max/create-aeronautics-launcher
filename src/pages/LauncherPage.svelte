@@ -392,7 +392,7 @@
     margin-top: 8px;
     max-height: 220px;
     overflow: auto;
-    background: var(--bg-elev);
+    background: rgba(3, 7, 14, 0.9);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     padding: 8px 10px;

@@ -37,7 +37,7 @@
   .backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(5, 7, 10, 0.6);
+    background: rgba(2, 5, 10, 0.72);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -46,14 +46,38 @@
   }
 
   .modal {
+    position: relative;
     max-width: 100%;
     max-height: calc(100vh - 40px);
     display: flex;
     flex-direction: column;
-    background: var(--surface);
+    background: linear-gradient(180deg, rgba(14, 30, 54, 0.98), rgba(7, 14, 27, 0.99));
     border: 1px solid var(--border-strong);
     border-radius: var(--radius);
-    box-shadow: var(--shadow);
+    box-shadow: var(--shadow), 0 0 40px rgba(34, 200, 255, 0.1);
+    outline: none;
+  }
+
+  .modal::before,
+  .modal::after {
+    content: "";
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    border: 0 solid var(--accent);
+    pointer-events: none;
+  }
+
+  .modal::before {
+    top: -1px;
+    left: -1px;
+    border-width: 2px 0 0 2px;
+  }
+
+  .modal::after {
+    bottom: -1px;
+    right: -1px;
+    border-width: 0 2px 2px 0;
   }
 
   .modal-head {

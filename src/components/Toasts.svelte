@@ -22,11 +22,11 @@
 
   .toast {
     padding: 10px 14px;
-    border-radius: var(--radius-sm);
-    background: var(--surface-2);
+    background: rgba(8, 16, 30, 0.97);
     border: 1px solid var(--border-strong);
-    box-shadow: var(--shadow);
     border-left-width: 3px;
+    box-shadow: var(--shadow);
+    clip-path: polygon(0 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%);
   }
 
   .toast.ok {
@@ -42,6 +42,6 @@
   }
 
   .toast.info {
-    border-left-color: var(--info);
+    border-left-color: var(--accent);
   }
 </style>

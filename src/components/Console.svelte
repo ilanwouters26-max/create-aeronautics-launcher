@@ -225,7 +225,7 @@
       <div class="suggestions"><div class="hint mono">{completion.hint}</div></div>
     {/if}
     <div class="cmd">
-      <span class="prompt mono">/</span>
+      <span class="prompt mono">›</span>
       <input
         class="input mono"
         bind:this={inputEl}
@@ -249,11 +249,35 @@
     flex-direction: column;
     height: calc(100vh - 250px);
     min-height: 420px;
-    background: var(--bg-elev);
+    background: rgba(3, 7, 14, 0.9);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     overflow: hidden;
     position: relative;
+  }
+
+  .console::before,
+  .console::after {
+    content: "";
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    border: 0 solid var(--accent);
+    opacity: 0.85;
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  .console::before {
+    top: -1px;
+    left: -1px;
+    border-width: 2px 0 0 2px;
+  }
+
+  .console::after {
+    bottom: -1px;
+    right: -1px;
+    border-width: 0 2px 2px 0;
   }
 
   .toolbar {
@@ -262,13 +286,14 @@
     gap: 10px;
     padding: 8px 10px;
     border-bottom: 1px solid var(--border);
-    background: var(--surface);
+    background: rgba(10, 20, 36, 0.9);
   }
 
   .levels {
     display: flex;
     gap: 2px;
-    background: var(--bg-elev);
+    background: rgba(3, 8, 16, 0.8);
+    border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     padding: 2px;
   }
@@ -278,14 +303,17 @@
     background: transparent;
     color: var(--text-2);
     padding: 4px 9px;
-    border-radius: 4px;
+    border-radius: 2px;
     cursor: pointer;
-    font-size: 12.5px;
+    font-family: var(--font-display);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
   }
 
   .levels button.active {
-    background: var(--surface-3);
-    color: var(--text);
+    background: rgba(34, 200, 255, 0.16);
+    color: var(--accent);
   }
 
   .search {
@@ -307,6 +335,7 @@
     font-family: var(--mono);
     font-size: 12.5px;
     padding: 6px 0;
+    background-image: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.012) 0 1px, transparent 1px 3px);
   }
 
   .spacer {
@@ -326,11 +355,11 @@
     padding: 0 12px;
     white-space: pre;
     line-height: 20px;
-    color: var(--text-2);
+    color: #b7cde2;
   }
 
   .line .ts {
-    color: var(--muted);
+    color: #3f6b8f;
     flex: 0 0 60px;
   }
 
@@ -356,7 +385,8 @@
   }
 
   .line.echo {
-    color: var(--blue);
+    color: #eafdff;
+    text-shadow: 0 0 8px rgba(34, 200, 255, 0.5);
   }
 
   .line.rcon {
@@ -381,8 +411,8 @@
 
   .input-wrap {
     position: relative;
-    border-top: 1px solid var(--border);
-    background: var(--surface);
+    border-top: 1px solid var(--border-strong);
+    background: rgba(10, 20, 36, 0.9);
   }
 
   .cmd {
@@ -393,7 +423,9 @@
   }
 
   .prompt {
-    color: var(--muted);
+    color: var(--accent);
+    font-size: 16px;
+    text-shadow: 0 0 8px rgba(34, 200, 255, 0.8);
   }
 
   .cmd .input {
@@ -406,10 +438,10 @@
     bottom: 100%;
     width: 440px;
     max-width: calc(100% - 40px);
-    background: var(--surface-2);
+    background: rgba(8, 16, 30, 0.97);
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-sm);
-    box-shadow: var(--shadow);
+    box-shadow: var(--shadow), 0 0 18px rgba(34, 200, 255, 0.12);
     margin-bottom: 4px;
     overflow: hidden;
   }
@@ -421,6 +453,7 @@
     width: 100%;
     text-align: left;
     border: 0;
+    border-left: 2px solid transparent;
     background: transparent;
     color: var(--text);
     padding: 5px 10px;
@@ -429,7 +462,8 @@
 
   .suggestions button.selected,
   .suggestions button:hover {
-    background: var(--surface-3);
+    background: rgba(34, 200, 255, 0.12);
+    border-left-color: var(--accent);
   }
 
   .suggestions .desc {
@@ -440,8 +474,8 @@
   .suggestions .hint {
     padding: 5px 10px;
     font-size: 11.5px;
-    color: var(--muted);
+    color: #4f7a9c;
     border-top: 1px solid var(--border);
-    background: var(--surface);
+    background: rgba(3, 8, 16, 0.8);
   }
 </style>

@@ -176,7 +176,7 @@
   pre {
     margin: 0;
     padding: 10px;
-    background: var(--bg-elev);
+    background: rgba(3, 7, 14, 0.9);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     max-height: 320px;

@@ -23,10 +23,10 @@
 
 <aside class="sidebar">
   <div class="brand">
-    <span class="logo"><Icon name="cube" size={18} /></span>
+    <span class="logo" aria-hidden="true"></span>
     <div>
       <div class="brand-name">Telek Panel</div>
-      <div class="brand-sub">Serveurs Minecraft</div>
+      <div class="brand-sub">Contrôle serveurs</div>
     </div>
   </div>
 
@@ -75,35 +75,61 @@
   .sidebar {
     display: flex;
     flex-direction: column;
-    background: var(--bg-elev);
+    background: linear-gradient(180deg, rgba(8, 16, 30, 0.96), rgba(4, 8, 16, 0.98));
     border-right: 1px solid var(--border);
     height: 100vh;
     overflow: hidden;
+    position: relative;
+  }
+
+  .sidebar::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: -1px;
+    width: 1px;
+    height: 220px;
+    background: linear-gradient(180deg, var(--accent), transparent);
+    box-shadow: var(--glow);
   }
 
   .brand {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 16px 16px 12px;
+    gap: 12px;
+    padding: 18px 16px 14px;
   }
 
   .logo {
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
-    background: var(--accent);
-    color: var(--accent-text);
-    display: grid;
-    place-items: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    flex: 0 0 auto;
+    background: radial-gradient(
+      circle,
+      #eafdff 0 13%,
+      rgba(34, 200, 255, 0.95) 15% 28%,
+      rgba(34, 200, 255, 0.12) 30% 46%,
+      rgba(111, 220, 255, 0.85) 48% 54%,
+      rgba(34, 200, 255, 0.1) 56% 72%,
+      transparent 74%
+    );
+    box-shadow: 0 0 18px rgba(34, 200, 255, 0.55), inset 0 0 10px rgba(34, 200, 255, 0.5);
   }
 
   .brand-name {
-    font-weight: 600;
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-size: 13px;
+    text-shadow: 0 0 12px rgba(34, 200, 255, 0.45);
   }
 
   .brand-sub {
-    font-size: 11.5px;
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
     color: var(--muted);
   }
 
@@ -124,20 +150,23 @@
     text-align: left;
     padding: 7px 10px;
     border: 0;
-    border-radius: var(--radius-sm);
+    border-left: 2px solid transparent;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
     background: transparent;
     color: var(--text-2);
     cursor: pointer;
   }
 
   nav button:hover {
-    background: var(--surface);
+    background: rgba(34, 200, 255, 0.05);
     color: var(--text);
   }
 
   nav button.active {
-    background: var(--surface-2);
+    background: linear-gradient(90deg, rgba(34, 200, 255, 0.16), rgba(34, 200, 255, 0.03));
+    border-left-color: var(--accent);
     color: var(--text);
+    box-shadow: inset 12px 0 18px -14px rgba(34, 200, 255, 0.6);
   }
 
   nav button span.ellipsis {
@@ -150,11 +179,12 @@
   }
 
   .section {
-    font-size: 11px;
+    font-family: var(--font-display);
+    font-size: 10.5px;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-    padding: 14px 10px 4px;
+    letter-spacing: 0.18em;
+    color: #4f7a9c;
+    padding: 16px 10px 5px;
   }
 
   .hint {
@@ -165,27 +195,32 @@
 
   .pill {
     margin-left: auto;
-    font-size: 11px;
-    background: var(--surface-3);
-    border-radius: 999px;
-    padding: 1px 7px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    background: rgba(34, 200, 255, 0.1);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 0 6px;
     color: var(--text-2);
     display: inline-flex;
     align-items: center;
   }
 
   .pill.alert {
-    background: rgba(240, 112, 106, 0.18);
+    background: rgba(255, 84, 104, 0.16);
+    border-color: rgba(255, 84, 104, 0.4);
     color: var(--err);
   }
 
   .pill.warn {
-    background: rgba(242, 184, 75, 0.18);
+    background: rgba(255, 181, 71, 0.14);
+    border-color: rgba(255, 181, 71, 0.4);
     color: var(--warn);
   }
 
   .foot {
     padding: 10px 16px;
     border-top: 1px solid var(--border);
+    letter-spacing: 0.04em;
   }
 </style>

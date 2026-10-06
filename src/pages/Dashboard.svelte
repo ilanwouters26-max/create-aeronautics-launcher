@@ -137,7 +137,7 @@
     {#each servers as s (s.id)}
       {@const st = states[s.id]}
       <div
-        class="card server-card"
+        class="card server-card {st?.status ?? 'stopped'}"
         role="button"
         tabindex="0"
         onclick={(e) => { if (!(e.target as HTMLElement).closest(".card-actions")) navigate("server", s.id, "console"); }}
@@ -206,11 +206,29 @@
 <style>
   .server-card {
     cursor: pointer;
-    transition: border-color 0.12s ease;
+    transition: border-color 0.12s ease, box-shadow 0.12s ease;
   }
 
   .server-card:hover {
     border-color: var(--border-strong);
+    box-shadow: 0 0 22px rgba(34, 200, 255, 0.1);
+  }
+
+  .server-card.running::before,
+  .server-card.running::after {
+    border-color: var(--ok);
+  }
+
+  .server-card.crashed::before,
+  .server-card.crashed::after {
+    border-color: var(--err);
+  }
+
+  .server-card.starting::before,
+  .server-card.starting::after,
+  .server-card.stopping::before,
+  .server-card.stopping::after {
+    border-color: var(--warn);
   }
 
   .card-actions {
